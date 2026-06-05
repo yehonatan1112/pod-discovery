@@ -181,7 +181,12 @@ def is_authorized(update: dict) -> bool:
     msg = update.get("message") or update.get("callback_query", {}).get("message")
     if not msg:
         return False
-    return str(msg.get("chat", {}).get("id")) == str(CHAT_ID)
+    incoming = str(msg.get("chat", {}).get("id"))
+    expected = str(CHAT_ID)
+    if incoming != expected:
+        print(f"[bot] IGNORED update from chat_id={incoming} (expected {expected})")
+        return False
+    return True
 
 
 def process_update(update: dict) -> None:
