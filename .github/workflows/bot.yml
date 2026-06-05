@@ -2,16 +2,21 @@ name: Bot Polling
 
 on:
   schedule:
-    # Every 5 minutes. Free for public repos (unlimited minutes).
-    - cron: "*/5 * * * *"
+    # Every 10 minutes. GitHub's minimum reliable interval.
+    # Note: GitHub can delay cron up to ~15 min — this is normal.
+    - cron: "*/10 * * * *"
+  push:
+    branches: [main]          # also runs on every push, activates the schedule immediately
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # allows bot to commit podcasts.yaml when adding a podcast
+  contents: write   # allows bot to commit podcasts.yaml when /add is used
   actions: write    # allows bot to dispatch the archive workflow
 
 jobs:
   poll:
+    # Skip the push-triggered run if it's just a bot commit (avoids infinite loop)
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, 'feat: add podcast') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
 
@@ -26,7 +31,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Persist Telegram update offset between runs using GitHub Actions cache
       - name: Restore offset cache
         uses: actions/cache@v4
         with:

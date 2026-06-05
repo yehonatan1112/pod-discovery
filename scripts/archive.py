@@ -183,4 +183,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        err = traceback.format_exc()
+        print(f"[archive] FATAL ERROR:\n{err}")
+        try:
+            telegram.send_message(os.environ["TELEGRAM_CHAT_ID"], f"❌ הארכיון נכשל:\n<code>{str(e)[:300]}</code>")
+        except Exception:
+            pass
+        raise
