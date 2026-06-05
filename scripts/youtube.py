@@ -1,4 +1,5 @@
 """Fetch recent episodes from a YouTube playlist using yt-dlp."""
+import json
 import subprocess
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -10,92 +11,63 @@ def fetch_new_episodes(playlist_url: str, since: datetime) -> list[dict]:
     """
     Return videos published on or after `since.date()`.
 
-    Fetches the last 20 entries without --dateafter (which silently drops all
-    videos when dates are unavailable in flat-playlist mode) and filters in Python.
-    If yt-dlp returns NA for all dates, falls back to full (non-flat) fetch for
-    just the first 10 entries so we always get real dates.
+    Uses --dump-json (full metadata per video) which reliably includes upload_date.
+    Limited to the last 15 entries so it stays fast enough for daily use.
     """
-    playlist_id = _extract_playlist_id(playlist_url)
-    fetch_url = f"https://www.youtube.com/playlist?list={playlist_id}" if playlist_id else playlist_url
-
-    rows = _flat_fetch(fetch_url, limit=20)
-
-    # If every date came back as NA, flat mode couldn't read them — try full fetch
-    if rows and all(r[2] == "NA" for r in rows):
-        print(f"[youtube] flat dates all NA, falling back to full fetch for {fetch_url}")
-        rows = _full_fetch(fetch_url, limit=10)
+    url = _clean_url(playlist_url)
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--playlist-end", "15",
+        "--no-warnings",
+        url,
+    ]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300, encoding="utf-8"
+        )
+    except subprocess.TimeoutExpired:
+        print(f"[youtube] timeout: {url}")
+        return []
 
     episodes = []
-    for video_id, title, upload_date in rows:
-        if not upload_date or upload_date == "NA":
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
             continue
         try:
-            pub_date = datetime.strptime(upload_date, "%Y%m%d").date()
-        except ValueError:
+            info = json.loads(line)
+        except json.JSONDecodeError:
             continue
+
+        pub_date = _parse_date(info)
+        if pub_date is None:
+            continue
+
+        # Skip YouTube Shorts (< 2 min)
+        if (info.get("duration") or 999) < 120:
+            continue
+
         if pub_date >= since.date():
             episodes.append({
-                "video_id": video_id,
-                "title": title,
+                "video_id": info.get("id"),
+                "title": info.get("title"),
                 "publish_date": pub_date,
-                "url": f"https://youtu.be/{video_id}",
+                "url": f"https://youtu.be/{info.get('id')}",
             })
 
     return episodes
 
 
-def _flat_fetch(url: str, limit: int) -> list[tuple[str, str, str]]:
-    """Fast fetch using --flat-playlist. Returns (id, title, upload_date) tuples."""
-    cmd = [
-        "yt-dlp", "--flat-playlist",
-        "--print", "%(id)s\t%(title)s\t%(upload_date)s",
-        "--playlist-end", str(limit),
-        url,
-    ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=90, encoding="utf-8")
-    except subprocess.TimeoutExpired:
-        print(f"[youtube] flat fetch timeout: {url}")
-        return []
-    return _parse_tsv(r.stdout)
-
-
-def _full_fetch(url: str, limit: int) -> list[tuple[str, str, str]]:
-    """Slower fetch that retrieves full video metadata (guarantees upload_date)."""
-    cmd = [
-        "yt-dlp",
-        "--print", "%(id)s\t%(title)s\t%(upload_date)s",
-        "--playlist-end", str(limit),
-        url,
-    ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, encoding="utf-8")
-    except subprocess.TimeoutExpired:
-        print(f"[youtube] full fetch timeout: {url}")
-        return []
-    return _parse_tsv(r.stdout)
-
-
-def _parse_tsv(stdout: str) -> list[tuple[str, str, str]]:
-    rows = []
-    for line in stdout.splitlines():
-        parts = line.strip().split("\t")
-        if len(parts) >= 3:
-            rows.append((parts[0], parts[1], parts[2]))
-    return rows
-
-
 def fetch_latest_episode(playlist_url: str) -> dict | None:
     """Return the single most recent episode from a playlist."""
-    playlist_id = _extract_playlist_id(playlist_url)
-    fetch_url = f"https://www.youtube.com/playlist?list={playlist_id}" if playlist_id else playlist_url
-
+    url = _clean_url(playlist_url)
     cmd = [
         "yt-dlp",
-        "--flat-playlist",
-        "--print", "%(id)s\t%(title)s\t%(upload_date)s",
+        "--dump-json",
         "--playlist-end", "1",
-        fetch_url,
+        "--no-warnings",
+        url,
     ]
     try:
         result = subprocess.run(
@@ -105,33 +77,55 @@ def fetch_latest_episode(playlist_url: str) -> dict | None:
         return None
 
     for line in result.stdout.splitlines():
-        parts = line.strip().split("\t")
-        if len(parts) < 3:
+        line = line.strip()
+        if not line:
             continue
-        video_id, title, upload_date = parts[0], parts[1], parts[2]
-        pub_date = None
         try:
-            pub_date = datetime.strptime(upload_date, "%Y%m%d").date() if upload_date != "NA" else None
-        except ValueError:
-            pass
+            info = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         return {
-            "video_id": video_id,
-            "title": title,
-            "publish_date": pub_date,
-            "url": f"https://youtu.be/{video_id}",
+            "video_id": info.get("id"),
+            "title": info.get("title"),
+            "publish_date": _parse_date(info),
+            "url": f"https://youtu.be/{info.get('id')}",
         }
     return None
 
 
-def _extract_playlist_id(url: str) -> str | None:
+def _parse_date(info: dict) -> date | None:
+    """Extract publish date from video metadata, trying multiple fields."""
+    # upload_date is YYYYMMDD string
+    raw = info.get("upload_date") or info.get("release_date")
+    if raw:
+        try:
+            return datetime.strptime(raw, "%Y%m%d").date()
+        except ValueError:
+            pass
+
+    # Fall back to unix timestamp
+    ts = info.get("timestamp") or info.get("release_timestamp")
+    if ts:
+        try:
+            return datetime.fromtimestamp(int(ts), tz=IL_TZ).date()
+        except (ValueError, OSError):
+            pass
+
+    return None
+
+
+def _clean_url(url: str) -> str:
+    """Normalise to playlist URL, strip tracking params."""
     import re
     m = re.search(r"[?&]list=([\w-]+)", url)
-    return m.group(1) if m else None
+    if m:
+        return f"https://www.youtube.com/playlist?list={m.group(1)}"
+    return url.split("&pp=")[0]
 
 
 def format_date_he(d: date | None) -> str:
     if d is None:
         return ""
-    months = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני",
-               "יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"]
+    months = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+               "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"]
     return f"{d.day} {months[d.month - 1]}"
