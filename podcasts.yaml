@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────
+# Podcast configuration
+#
+# For each podcast:
+#
+#   url:
+#     YouTube playlist URL  →  https://www.youtube.com/playlist?list=PL...
+#     OR channel URL        →  https://www.youtube.com/@ChannelName
+#     Playlists are preferred.
+#
+#   default_format:
+#     "audio"  — MP3 (smaller, faster, recommended for podcasts)
+#     "video"  — original video
+#     Override per-request with Telegram commands:
+#       /archive          → uses this default
+#       /archive audio    → force audio
+#       /archive video    → force video
+#
+#   active:
+#     true   — include in scans and digests
+#     false  — skip (preserved for easy re-enabling)
+#
+# ─────────────────────────────────────────────────────────────
+
+podcasts:
+
+  - name: היידה
+    slug: hayda
+    url: https://www.youtube.com/playlist?list=PLZPgleW4baxrbPz83Yx91cmFVSYYavxmw
+    default_format: video
+    active: true
+
+  - name: שוט
+    slug: shot
+    url: https://www.youtube.com/playlist?list=PLuiUlNrgsZU_oQgI6Fcy45rjzeJJ16seg
+    default_format: video
+    active: true
+
+  - name: מדברים מהבטן
+    slug: medabrim
+    url: https://www.youtube.com/playlist?list=PLZPgleW4baxrsrU-metYY1imJ85uH9FNg
+    default_format: audio
+    active: true
+
+  - name: הקרנף
+    slug: karnaf
+    url: https://www.youtube.com/playlist?list=PLZPgleW4baxpCtioKMLwGfWxeUUIuZi49
+    default_format: audio
+    active: true
+
+  - name: תרגעו
+    slug: tirgau
+    url: https://www.youtube.com/playlist?list=PLZPgleW4baxp-f1vP4hjsUoYn-tQLU7e3
+    default_format: audio
+    active: true
+
+  - name: הפודיום
+    slug: podium
+    url: https://www.youtube.com/playlist?list=PLq2NDONh9LhAyW0xTHYlla4N4jwhBACqO
+    default_format: video
+    active: true
+
+  - name: הקוסם ובניו
+    slug: kosem
+    url: https://www.youtube.com/playlist?list=PLuiUlNrgsZU8339sDa85180A6ms0oFKQH
+    default_format: video
+    active: true
+
+  - name: עונג שבת
+    slug: oneg
+    url: https://www.youtube.com/playlist?list=PLq2NDONh9LhCywP1m50Qp9g-Ix3iExoBz
+    default_format: audio
+    active: true
+
+  - name: הקול המקצועי
+    slug: kolmiktzoi
+    url: https://www.youtube.com/playlist?list=PLFlrt78WVZxnVCVinLXVep_z62qrLLY-o
+    default_format: audio
+    active: false
+
+  - name: lightsout
+    slug: lightsout
+    url: https://www.youtube.com/playlist?list=PLuiUlNrgsZU-4JPRQ72Ng6OuAFR6sT4B-
+    default_format: audio
+    active: true
+
+  - name: הפודקאסט של נדב פרי
+    slug: nadavperry
+    url: https://www.youtube.com/playlist?list=PLWKYrFAboofhiHjwDZbqdKw3NPYzLvvNT
+    default_format: audio
+    active: true
+
+  - name: עושים NBA
+    slug: nba
+    url: https://www.youtube.com/playlist?list=PLyYXn8QPOavT8ryyUJteKd4aKtqHPMjtj
+    default_format: audio
+    active: true
+
+  - name: ספיק אנד רול
+    slug: speakandroll
+    url: https://www.youtube.com/playlist?list=PLjgXMrJWeeQPcRayGG4yk4mLHO0Y9f7-5
+    default_format: audio
+    active: true
+
+  - name: בןבן ברוך
+    slug: benben
+    url: https://www.youtube.com/playlist?list=PLv7CiBnZpYY9tyUgfz2UlH2pcaorsNH85
+    default_format: audio
+    active: true
+
+  - name: trashtech
+    slug: trashtech
+    url: https://www.youtube.com/playlist?list=PLTzX64l3TZ8KhjVpnyxO8KPSGy1I9A-Ub
+    default_format: audio
+    active: true
+
+
+# ─────────────────────────────────────────────────────────────
+# Digest schedule
+# ─────────────────────────────────────────────────────────────
+
+digest:
+  # Days to send the daily digest (Israel time)
+  # 0=Sunday 1=Monday 2=Tuesday 3=Wednesday 4=Thursday 5=Friday 6=Saturday
+  daily_days: [0, 1, 2, 3]    # Sun, Mon, Tue, Wed
+
+  # Saturday digest covers Thu + Fri + Sat
+  saturday_day: 6
+
+  # Time to send, Israel time (UTC+3), 24h
+  send_time: "20:00"
+
+
+# ─────────────────────────────────────────────────────────────
+# Archive settings
+# ─────────────────────────────────────────────────────────────
+
+archives:
+  # How long the download link stays valid
+  link_expiry_hours: 48
+
+  # Audio quality: 0=best, 9=worst (3 is a good balance)
+  audio_quality: 3
+
+  # Audio format
+  audio_format: mp3
