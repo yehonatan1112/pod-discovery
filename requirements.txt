@@ -1,4 +1,3 @@
 yt-dlp
 PyYAML
 requests
-boto3

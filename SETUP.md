@@ -1,6 +1,6 @@
 # Setup Guide
 
-One-time setup. Takes about 20 minutes.
+One-time setup. Takes about 10 minutes.
 
 ---
 
@@ -20,7 +20,7 @@ One-time setup. Takes about 20 minutes.
 2. Send `/newbot`
 3. Follow the prompts — give it a name and username (e.g. `MyPodcastBot`)
 4. BotFather will give you a **token** that looks like `123456789:ABCdef...`
-5. Save that token — you'll need it in Step 4
+5. Save that token
 
 **Get your personal chat ID:**
 1. Search for **@userinfobot** on Telegram
@@ -29,52 +29,30 @@ One-time setup. Takes about 20 minutes.
 
 ---
 
-## Step 3 — Set up Cloudflare R2 (for archive downloads)
-
-1. Go to https://dash.cloudflare.com → **R2 Object Storage**
-2. Click **Create bucket**, name it `podcast-archives` (or anything)
-3. Open the bucket → **Settings** → **Public access** → enable **Allow Access**
-4. Note your **Public bucket URL** (looks like `https://pub-xxxx.r2.dev`)
-
-**Create API credentials:**
-1. In R2, click **Manage R2 API Tokens** → **Create API Token**
-2. Give it **Object Read & Write** permission for your bucket
-3. Save the **Access Key ID** and **Secret Access Key**
-
-**Find your endpoint URL:**
-- Format: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
-- Your Account ID is in the Cloudflare dashboard URL or under **R2 → Overview**
-
----
-
-## Step 4 — Add secrets to GitHub
+## Step 3 — Add secrets to GitHub
 
 In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**
 
-Add these secrets one by one:
+Add these two secrets:
 
 | Secret name | Value |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | The token from BotFather |
 | `TELEGRAM_CHAT_ID` | Your personal chat ID from @userinfobot |
-| `R2_ENDPOINT_URL` | `https://<account-id>.r2.cloudflarestorage.com` |
-| `R2_ACCESS_KEY_ID` | From Step 3 |
-| `R2_SECRET_ACCESS_KEY` | From Step 3 |
-| `R2_BUCKET` | `podcast-archives` (or whatever you named it) |
-| `R2_PUBLIC_URL` | `https://pub-xxxx.r2.dev` from Step 3 |
+
+That's it. No storage accounts, no API keys, nothing else.
 
 ---
 
-## Step 5 — Start the bot
+## Step 4 — Start the bot
 
-1. Open your Telegram app
-2. Search for your bot by its username
-3. Press **Start** (or send `/start`)
-4. The bot will respond within 5 minutes (that's how often it polls)
+1. Open Telegram and find your bot by its username
+2. Press **Start** (or send `/start`)
+3. The bot will respond within 5 minutes
 
 ---
 
-## Step 6 — Test the digest (optional)
+## Step 5 — Test the digest (optional)
 
 To send a test digest immediately without waiting for the schedule:
 
@@ -85,21 +63,31 @@ To send a test digest immediately without waiting for the schedule:
 
 ---
 
-## How it works (summary)
+## How it works
 
-| What | When | How |
-|---|---|---|
-| Digest | Sun–Wed + Sat at 20:00 IL | GitHub Actions cron |
-| Bot polls for your commands | Every 5 minutes | GitHub Actions cron |
-| Archive creation | When you send `/archive` | GitHub Actions workflow_dispatch |
+| What | When |
+|---|---|
+| Digest sent | Sun, Mon, Tue, Wed, Sat at 20:00 Israel time |
+| Bot checks for your commands | Every 5 minutes |
+| Archive created | When you send `/archive` (takes a few minutes) |
 
-**Commands you can send to the bot:**
-- `/latest` — most recent episode from each podcast
-- `/status` — system status
-- `/archive` — download all episodes from last digest (per-podcast format defaults)
-- `/archive audio` — force MP3 for everything
-- `/archive video` — force video for everything
-- `/add <name> <url> [audio|video]` — add a new podcast
+Archive download links are hosted on [transfer.sh](https://transfer.sh) — no account needed, links expire automatically after 48 hours.
+
+---
+
+## Commands
+
+Send these to your bot in Telegram:
+
+| Command | What it does |
+|---|---|
+| `/latest` | Most recent episode from each podcast |
+| `/status` | Active podcast count + current digest window |
+| `/archive` | Download all episodes from the last digest (each podcast uses its own default format) |
+| `/archive audio` | Same but force MP3 for everything |
+| `/archive video` | Same but force video for everything |
+| `/add <name> <url> [audio\|video]` | Add a new podcast |
+| `/help` | Show this list |
 
 **Adding a podcast example:**
 ```
@@ -108,31 +96,17 @@ To send a test digest immediately without waiting for the schedule:
 
 ---
 
-## Archive setup (cleanup)
-
-Archives are stored in R2. You should set a lifecycle rule to auto-delete them after a few days:
-
-1. In R2, open your bucket → **Settings** → **Object lifecycle rules**
-2. Add a rule: delete objects with prefix `archives/` after **3 days**
-
-This keeps storage costs at zero.
-
----
-
 ## Troubleshooting
 
 **Bot not responding?**
-- Check the **Actions** tab in GitHub — look for failed `Bot Polling` runs
-- Make sure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` secrets are set correctly
+- Check **Actions** tab in GitHub → look for failed `Bot Polling` runs
+- Make sure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set correctly in Secrets
+- The bot only responds to your chat ID — it ignores everyone else
 
 **Digest not sending?**
-- Check the **Actions** tab → **Send Digest** run logs
-- Make sure the playlist URLs in `podcasts.yaml` are correct
+- Check **Actions** tab → **Send Digest** run logs
+- Trigger it manually from the Actions tab to test
 
 **Archive failing?**
-- Check the **Actions** tab → **Create Archive** run logs
-- R2 credentials are the most common issue — double-check the endpoint URL format
-
-**Wrong episodes in digest?**
-- The digest shows episodes published within the time window, based on YouTube's upload date
-- If a podcast uploads late (e.g. publishes Friday but shows Tuesday's date), it may appear in a different digest
+- Check **Actions** tab → **Create Archive** run logs
+- Large video archives can take 30–60 minutes — this is normal
