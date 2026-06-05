@@ -1,0 +1,50 @@
+name: Bot Polling
+
+on:
+  schedule:
+    # Every 5 minutes. Free for public repos (unlimited minutes).
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # allows bot to commit podcasts.yaml when adding a podcast
+  actions: write    # allows bot to dispatch the archive workflow
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Persist Telegram update offset between runs using GitHub Actions cache
+      - name: Restore offset cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/tg_offset.txt
+          key: tg-offset-${{ github.run_id }}
+          restore-keys: tg-offset-
+
+      - name: Poll Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/bot.py
+
+      - name: Save offset cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: /tmp/tg_offset.txt
+          key: tg-offset-${{ github.run_id }}
