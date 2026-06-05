@@ -9,38 +9,24 @@ IL_TZ = ZoneInfo("Asia/Jerusalem")
 def fetch_new_episodes(playlist_url: str, since: datetime) -> list[dict]:
     """
     Return videos published on or after `since.date()`.
-    Uses --flat-playlist for speed; falls back gracefully if dates are missing.
+
+    Fetches the last 20 entries without --dateafter (which silently drops all
+    videos when dates are unavailable in flat-playlist mode) and filters in Python.
+    If yt-dlp returns NA for all dates, falls back to full (non-flat) fetch for
+    just the first 10 entries so we always get real dates.
     """
-    since_str = since.strftime("%Y%m%d")
     playlist_id = _extract_playlist_id(playlist_url)
     fetch_url = f"https://www.youtube.com/playlist?list={playlist_id}" if playlist_id else playlist_url
 
-    cmd = [
-        "yt-dlp",
-        "--flat-playlist",
-        "--print", "%(id)s\t%(title)s\t%(upload_date)s",
-        "--dateafter", since_str,
-        "--playlist-end", "20",
-        fetch_url,
-    ]
+    rows = _flat_fetch(fetch_url, limit=20)
 
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=90, encoding="utf-8"
-        )
-    except subprocess.TimeoutExpired:
-        print(f"[youtube] timeout fetching {fetch_url}")
-        return []
+    # If every date came back as NA, flat mode couldn't read them — try full fetch
+    if rows and all(r[2] == "NA" for r in rows):
+        print(f"[youtube] flat dates all NA, falling back to full fetch for {fetch_url}")
+        rows = _full_fetch(fetch_url, limit=10)
 
     episodes = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split("\t")
-        if len(parts) < 3:
-            continue
-        video_id, title, upload_date = parts[0], parts[1], parts[2]
+    for video_id, title, upload_date in rows:
         if not upload_date or upload_date == "NA":
             continue
         try:
@@ -55,8 +41,48 @@ def fetch_new_episodes(playlist_url: str, since: datetime) -> list[dict]:
                 "url": f"https://youtu.be/{video_id}",
             })
 
-    # yt-dlp returns newest-first; keep that order
     return episodes
+
+
+def _flat_fetch(url: str, limit: int) -> list[tuple[str, str, str]]:
+    """Fast fetch using --flat-playlist. Returns (id, title, upload_date) tuples."""
+    cmd = [
+        "yt-dlp", "--flat-playlist",
+        "--print", "%(id)s\t%(title)s\t%(upload_date)s",
+        "--playlist-end", str(limit),
+        url,
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=90, encoding="utf-8")
+    except subprocess.TimeoutExpired:
+        print(f"[youtube] flat fetch timeout: {url}")
+        return []
+    return _parse_tsv(r.stdout)
+
+
+def _full_fetch(url: str, limit: int) -> list[tuple[str, str, str]]:
+    """Slower fetch that retrieves full video metadata (guarantees upload_date)."""
+    cmd = [
+        "yt-dlp",
+        "--print", "%(id)s\t%(title)s\t%(upload_date)s",
+        "--playlist-end", str(limit),
+        url,
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, encoding="utf-8")
+    except subprocess.TimeoutExpired:
+        print(f"[youtube] full fetch timeout: {url}")
+        return []
+    return _parse_tsv(r.stdout)
+
+
+def _parse_tsv(stdout: str) -> list[tuple[str, str, str]]:
+    rows = []
+    for line in stdout.splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) >= 3:
+            rows.append((parts[0], parts[1], parts[2]))
+    return rows
 
 
 def fetch_latest_episode(playlist_url: str) -> dict | None:
