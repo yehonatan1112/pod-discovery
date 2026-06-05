@@ -30,24 +30,30 @@ def fetch_new_episodes(playlist_url: str, since: datetime) -> list[dict]:
         print(f"[youtube] timeout: {url}")
         return []
 
+    if result.returncode != 0 or not result.stdout.strip():
+        print(f"[youtube] yt-dlp exit={result.returncode} stdout_len={len(result.stdout)} url={url}")
+        print(f"[youtube] stderr: {result.stderr[-600:]}")
+        return []
+
+    lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+    print(f"[youtube] {url} → {len(lines)} JSON lines, window_since={since.date()}")
+
     episodes = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    for line in lines:
         try:
             info = json.loads(line)
         except json.JSONDecodeError:
             continue
 
         pub_date = _parse_date(info)
+        duration = info.get("duration") or 999
+        title = info.get("title", "")[:50]
+        print(f"[youtube]   {title!r} date={pub_date} duration={duration}s")
+
         if pub_date is None:
             continue
-
-        # Skip YouTube Shorts (< 2 min)
-        if (info.get("duration") or 999) < 120:
+        if duration < 120:
             continue
-
         if pub_date >= since.date():
             episodes.append({
                 "video_id": info.get("id"),
