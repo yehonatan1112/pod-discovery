@@ -26,12 +26,20 @@ import youtube
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 IL_TZ = ZoneInfo("Asia/Jerusalem")
 
+_COOKIES_FILE = "/tmp/yt-cookies.txt"
+
+
+def _cookies_args() -> list[str]:
+    """Return --cookies flag if the cookies file was written by the workflow."""
+    return ["--cookies", _COOKIES_FILE] if Path(_COOKIES_FILE).exists() else []
+
 
 # ─── download helpers ─────────────────────────────────────────────────────────
 
 def download_audio(url: str, out_dir: Path, quality: int = 3) -> Path | None:
     cmd = [
         "yt-dlp",
+        *_cookies_args(),
         "--extract-audio",
         "--audio-format", "mp3",
         "--audio-quality", str(quality),
@@ -50,6 +58,7 @@ def download_audio(url: str, out_dir: Path, quality: int = 3) -> Path | None:
 def download_video(url: str, out_dir: Path) -> Path | None:
     cmd = [
         "yt-dlp",
+        *_cookies_args(),
         "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--no-playlist",
         "--output", str(out_dir / "%(title)s.%(ext)s"),

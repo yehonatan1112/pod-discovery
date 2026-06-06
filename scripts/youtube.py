@@ -1,132 +1,95 @@
-"""Fetch recent episodes from a YouTube playlist using yt-dlp."""
-import json
-import subprocess
+"""
+Fetch recent episodes via YouTube RSS feed (no auth, no bot detection).
+Downloads still use yt-dlp (see archive.py).
+"""
+import re
+import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import requests
+
 IL_TZ = ZoneInfo("Asia/Jerusalem")
+
+_NS = {
+    "atom":  "http://www.w3.org/2005/Atom",
+    "yt":    "http://www.youtube.com/xml/schemas/2015",
+    "media": "http://search.yahoo.com/mrss/",
+}
+_RSS_BASE = "https://www.youtube.com/feeds/videos.xml"
+_SESSION = requests.Session()
+_SESSION.headers["User-Agent"] = "Mozilla/5.0"
+
+
+def _playlist_id(url: str) -> str | None:
+    m = re.search(r"[?&]list=([\w-]+)", url)
+    return m.group(1) if m else None
+
+
+def _rss_entries(playlist_url: str) -> list[dict]:
+    pid = _playlist_id(playlist_url)
+    if not pid:
+        print(f"[youtube] cannot extract playlist ID from {playlist_url}")
+        return []
+
+    rss_url = f"{_RSS_BASE}?playlist_id={pid}"
+    try:
+        resp = _SESSION.get(rss_url, timeout=20)
+    except requests.RequestException as e:
+        print(f"[youtube] RSS request failed for {pid}: {e}")
+        return []
+
+    if resp.status_code != 200:
+        print(f"[youtube] RSS {resp.status_code} for {pid}")
+        return []
+
+    try:
+        root = ET.fromstring(resp.content)
+    except ET.ParseError as e:
+        print(f"[youtube] RSS parse error for {pid}: {e}")
+        return []
+
+    entries = []
+    for entry in root.findall("atom:entry", _NS):
+        video_id  = entry.findtext("yt:videoId",  namespaces=_NS)
+        title     = entry.findtext("atom:title",   namespaces=_NS)
+        published = entry.findtext("atom:published", namespaces=_NS)
+
+        if not video_id or not published:
+            continue
+
+        try:
+            pub_date = datetime.fromisoformat(published).date()
+        except ValueError:
+            continue
+
+        entries.append({
+            "video_id":    video_id,
+            "title":       title or video_id,
+            "publish_date": pub_date,
+            "url":         f"https://youtu.be/{video_id}",
+        })
+
+    return entries   # RSS returns newest-first
 
 
 def fetch_new_episodes(playlist_url: str, since: datetime) -> list[dict]:
-    """
-    Return videos published on or after `since.date()`.
+    """Return episodes published on or after since.date()."""
+    entries = _rss_entries(playlist_url)
+    pid = _playlist_id(playlist_url)
+    print(f"[youtube] {pid}: {len(entries)} entries from RSS, window_since={since.date()}")
+    for e in entries:
+        print(f"[youtube]   {e['publish_date']}  {e['title'][:60]}")
 
-    Uses --dump-json (full metadata per video) which reliably includes upload_date.
-    Limited to the last 15 entries so it stays fast enough for daily use.
-    """
-    url = _clean_url(playlist_url)
-    cmd = [
-        "yt-dlp",
-        "--dump-json",
-        "--playlist-end", "15",
-        "--no-warnings",
-        url,
-    ]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300, encoding="utf-8"
-        )
-    except subprocess.TimeoutExpired:
-        print(f"[youtube] timeout: {url}")
-        return []
-
-    if result.returncode != 0 or not result.stdout.strip():
-        print(f"[youtube] yt-dlp exit={result.returncode} stdout_len={len(result.stdout)} url={url}")
-        print(f"[youtube] stderr: {result.stderr[-600:]}")
-        return []
-
-    lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-    print(f"[youtube] {url} → {len(lines)} JSON lines, window_since={since.date()}")
-
-    episodes = []
-    for line in lines:
-        try:
-            info = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        pub_date = _parse_date(info)
-        duration = info.get("duration") or 999
-        title = info.get("title", "")[:50]
-        print(f"[youtube]   {title!r} date={pub_date} duration={duration}s")
-
-        if pub_date is None:
-            continue
-        if duration < 120:
-            continue
-        if pub_date >= since.date():
-            episodes.append({
-                "video_id": info.get("id"),
-                "title": info.get("title"),
-                "publish_date": pub_date,
-                "url": f"https://youtu.be/{info.get('id')}",
-            })
-
-    return episodes
+    result = [e for e in entries if e["publish_date"] >= since.date()]
+    print(f"[youtube]   → {len(result)} in window")
+    return result
 
 
 def fetch_latest_episode(playlist_url: str) -> dict | None:
-    """Return the single most recent episode from a playlist."""
-    url = _clean_url(playlist_url)
-    cmd = [
-        "yt-dlp",
-        "--dump-json",
-        "--playlist-end", "1",
-        "--no-warnings",
-        url,
-    ]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, encoding="utf-8"
-        )
-    except subprocess.TimeoutExpired:
-        return None
-
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            info = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        return {
-            "video_id": info.get("id"),
-            "title": info.get("title"),
-            "publish_date": _parse_date(info),
-            "url": f"https://youtu.be/{info.get('id')}",
-        }
-    return None
-
-
-def _parse_date(info: dict) -> date | None:
-    """Extract publish date from video metadata, trying multiple fields."""
-    # upload_date is YYYYMMDD string
-    raw = info.get("upload_date") or info.get("release_date")
-    if raw:
-        try:
-            return datetime.strptime(raw, "%Y%m%d").date()
-        except ValueError:
-            pass
-
-    # Fall back to unix timestamp
-    ts = info.get("timestamp") or info.get("release_timestamp")
-    if ts:
-        try:
-            return datetime.fromtimestamp(int(ts), tz=IL_TZ).date()
-        except (ValueError, OSError):
-            pass
-
-    return None
-
-
-def _clean_url(url: str) -> str:
-    """Normalise to playlist URL, strip tracking params."""
-    import re
-    m = re.search(r"[?&]list=([\w-]+)", url)
-    if m:
-        return f"https://www.youtube.com/playlist?list={m.group(1)}"
-    return url.split("&pp=")[0]
+    """Return the most recent episode."""
+    entries = _rss_entries(playlist_url)
+    return entries[0] if entries else None
 
 
 def format_date_he(d: date | None) -> str:
