@@ -157,11 +157,14 @@ def handle_add(args: list[str]) -> None:
 def _dispatch_archive_workflow(fmt_override: str, window_start: str, window_end: str) -> None:
     token = os.environ["GITHUB_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
+    # Use the current branch name so this works on main, master, or any other default
+    ref = os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_REF", "main").split("/")[-1]
+    print(f"[bot] dispatching archive workflow on ref={ref!r} repo={repo!r}")
     resp = requests.post(
         f"https://api.github.com/repos/{repo}/actions/workflows/archive.yml/dispatches",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
         json={
-            "ref": "main",
+            "ref": ref,
             "inputs": {
                 "fmt_override": fmt_override,
                 "window_start": window_start,
@@ -170,6 +173,7 @@ def _dispatch_archive_workflow(fmt_override: str, window_start: str, window_end:
         },
         timeout=15,
     )
+    print(f"[bot] dispatch response: {resp.status_code} {resp.text[:200]}")
     if not resp.ok:
         raise RuntimeError(f"Workflow dispatch failed: {resp.status_code} {resp.text}")
 
